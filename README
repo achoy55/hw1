@@ -1,0 +1,12 @@
+## Home work #1
+
+## Create venv first, open terminal, in project folder run
+    python -m venv ./otus
+    source otus/bin/activate
+    pip install -r requirements.txt
+
+### Run for stock tickets
+    stock_trade.ipynb
+    
+### Run for crypto
+    crypto_trade.ipynb
