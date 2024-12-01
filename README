@@ -10,3 +10,26 @@
     
 ### Run for crypto
     crypto_trade.ipynb
+
+
+### Strategy #01
+    ## FTSE
+    IF LOW OF 4 DAYS AGO > HIGH OF TODAY AND
+    HIGH OF TODAY > LOW OF 3 DAYS AGO AND
+    LOW OF 3 DAYS AGO > LOW OF 2 DAYS AGO AND
+    LOW OF 2 DAYS AGO > LOW OF YESTERDAY THEN 
+    BUY TOMORROW ON THE THE OPEN WITH 
+    TAKE PROFIT TARGET AT ENTRY PRICE + 2% AND
+    STOP LOSS AT ENTRY PRICE - 4%
+
+
+
+
+
+
+### Reference
+[talib functions](https://ta-lib.org/functions/)
+[talib tutorial](https://fja05680.github.io/TA-Lib-tutorial/)
+
+
+
