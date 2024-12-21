@@ -2,3 +2,8 @@ stock_data/
 crypto_data/
 forex_data/
 otus/
+.otus/
+.finrl/
+.cuda/
+.vscode/
+*.html
