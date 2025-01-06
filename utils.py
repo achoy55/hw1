@@ -2,8 +2,8 @@ import pandas as pd
 import numpy as np
 from enum import Enum
 
-import catboost as cb
-import xgboost as xgb
+from catboost import CatBoostClassifier, CatBoostRegressor
+from xgboost import XGBClassifier, XGBRegressor
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
@@ -70,13 +70,13 @@ def logistic_regression_model(X_train, y_train, params):
 
 def catboot_classifier_model(X_train, y_train, params):
     model_params = params.copy()
-    model = cb.CatBoostClassifier(**model_params)
+    model = CatBoostClassifier(**model_params)
     model.fit(X_train, y_train)
     return model
 
 def catboot_regressor_model(X_train, y_train, params):
     model_params = params.copy()
-    model = cb.CatBoostRegressor(**model_params)
+    model = CatBoostRegressor(**model_params)
     model.fit(X_train, y_train)
     return model
 
@@ -118,13 +118,13 @@ def knn_regressor_model(X_train, y_train, params):
 
 def xgboost_classifier_model(X_train, y_train, params):
     model_params = params.copy()
-    model = xgb.XGBClassifier().set_params(**model_params)
+    model = XGBClassifier().set_params(**model_params)
     model.fit(X_train, y_train)
     return model
 
 def xgboost_regressor_model(X_train, y_train, params):
     model_params = params.copy()
-    model = xgb.XGBRegressor().set_params(**model_params)
+    model = XGBRegressor().set_params(**model_params)
     model.fit(X_train, y_train)
     return model
 
@@ -165,9 +165,9 @@ def model_fit(model_func, X_train, y_train, params):
 def model_fit_with_eval(model_func, X_train, y_train, eval_set, params):
     model_params = params.copy()
     if ModelFunc.CATBOOST_CLASS is model_func:
-        model = cb.CatBoostClassifier(**model_params)
+        model = CatBoostClassifier(**model_params)
     if ModelFunc.CATBOOST_REG is model_func:
-        model = cb.CatBoostRegressor(**model_params)
+        model = CatBoostRegressor(**model_params)
     model.fit(X_train, y_train, eval_set=eval_set)
     return model
 
@@ -224,6 +224,71 @@ def top_n_weighted_factors(importance_function, features, top):
     top_features = feature_importance.reindex(feature_importance['Importance'].abs().sort_values(ascending=False).index).head(top)
     print(f"=== Top-{top} most important factors ===")
     print(top_features)
+
+def fit_models(model_funcs, X_train, y_train, X_val=None, y_val=None):
+    models = list()
+    for model_func in model_funcs:
+        params = get_model_params(model_func)
+        if X_val is None or y_val is None:
+            model = model_fit(model_func, X_train, y_train, params)
+        else:
+            if model_func is ModelFunc.CATBOOST_CLASS:
+                params = dict(params, early_stopping_rounds=50)
+                model = model_fit_with_eval(model_func, X_train, y_train, eval_set=(X_val, y_val), params=params)
+            else:
+                model = model_fit(model_func, X_train, y_train, params)
+        models.append(model)
+
+    return models
+
+def predict_models(models, X_train, X_val, X_test):
+    models_proba = list()
+    for model in models:
+        try:
+            train_arr = np.array(model.predict_proba(X_train)[:, 1])
+            val_arr = np.array(model.predict_proba(X_val)[:, 1])
+            test_arr = np.array(model.predict_proba(X_test)[:, 1])
+        except Exception as e:
+            train_arr = np.array(model.predict(X_train))
+            val_arr = np.array(model.predict(X_val))
+            test_arr = np.array(model.predict(X_test))
+        
+        models_proba.append({
+            'train': train_arr,
+            'val': val_arr,
+            'test': test_arr,
+        })
+
+    return models_proba
+
+def blending_pred(*args):
+    return sum(args) / len(args)
+    
+def stacking_pred(*args):
+    return np.column_stack(args)
+
+def split_data_by_date(data_with_features):
+    test_start_date = pd.to_datetime(data_with_features.index.max()) - pd.DateOffset(months=1)
+    val_start_date = pd.to_datetime(data_with_features.index.max()) - pd.DateOffset(months=2)
+
+    train_data = data_with_features[pd.to_datetime(data_with_features.index) < val_start_date] 
+    val_data = data_with_features[(pd.to_datetime(data_with_features.index) >= val_start_date) & \
+                                  (pd.to_datetime(data_with_features.index) < test_start_date)]
+    test_data = data_with_features[pd.to_datetime(data_with_features.index) >= test_start_date]
+    # print(data_with_features.index[-1], train_data.index[-1], val_data.index[-1], test_data.index[-1])    
+
+    return train_data, val_data, test_data
+
+def show_importance(model, model_func, params):
+    importance_function = model.coef_[0]
+    if model_func in [ModelFunc.XGBOOST_CLASS, ModelFunc.DECISION_TREE_CLASS, ModelFunc.RANDOM_FOREST_CLASS, \
+                      ModelFunc.KNN_CLASS, ]:
+        importance_function = model.feature_importances_
+    if model_func in [ModelFunc.CATBOOST_CLASS, ]:
+        importance_function = model.get_feature_importance()
+
+    top_n_weighted_factors(importance_function, params['features'], params['top'])
+    return importance_function
     
 def plot_cv_indices(cv, X, y, group, ax, n_splits, lw=10):
     """Create a sample plot for indices of a cross-validation object."""
