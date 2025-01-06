@@ -7,3 +7,6 @@ otus/
 .cuda/
 .vscode/
 *.html
+_data_store/
+docker/data/
+catboost_info/
