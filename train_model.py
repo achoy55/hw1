@@ -2,6 +2,8 @@ import pandas as pd
 import numpy as np
 from enum import Enum
 from numpy import hstack
+import joblib 
+import os
 import warnings
 warnings.simplefilter('ignore')
 from tqdm import tqdm
@@ -33,15 +35,19 @@ from data_validation import plot_anomalies, plot_anomalies_by_column
 from data_validation import detect_anomalies_z, merge_anomalies_z
 
 
+def save_model(model, name, ):
+    os.makedirs('trained_model', exist_ok=True) 
+    joblib.dump(model, f'trained_model/{name}.joblib')
+
+def load_model(name):
+    return joblib.load(f'trained_model/{name}.joblib')
+
 def detect_anomalies_adtk(df, column_name):
     anomalies = detect_SeasonalAD(df[column_name], 3.0, 'both')
     print('Anomalies detected:', anomalies.value_counts())
     return anomalies
 
 def linear_regression_model(X_train, y_train, params):
-    # true_weights = [2, 0.00001]
-    # y = true_weights[0] * X_train + true_weights[1] * y_train + np.random.normal(0, 1, len(y_train))
-    
     model_params = params.copy()
     model = LinearRegression().set_params(**model_params)
     model.fit(X_train, y_train)
