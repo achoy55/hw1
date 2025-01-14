@@ -4,3 +4,10 @@ crypto_data/
 forex_data/
 otus/
 *.html
+__pycache__/
+_data_store/
+catboost_info/
+docker/data/
+trained_model/
+redis_cli/__pycache__/
+event/__pycache__/
