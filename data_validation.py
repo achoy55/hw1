@@ -1,10 +1,12 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
 import plotly.graph_objects as go
-import seaborn
-from sklearn.preprocessing import MinMaxScaler
 from scipy import stats
+from pykalman import KalmanFilter
+from dataprep.eda import create_report
+from dataprep.clean import clean_df
 
 # служебные функции
 from adtk.data import validate_series
@@ -139,9 +141,31 @@ def plot_anomalies_custom(df, y_column, config):
     
     figure.show()
 
+def kalman_filter(df, column_name='Close'):
+    data = df.copy()
+    kf = KalmanFilter(transition_matrices = [1], observation_matrices = [1], initial_state_mean = 0,
+                  initial_state_covariance = 1, observation_covariance=1, transition_covariance=.01)
+    state_means, _ = kf.filter(data[column_name])
+    return state_means
+
+def clean_data_dataprep(df, is_show_report=False):
+    inferred_dtypes, cleaned_df = clean_df(df)
+    print(inferred_dtypes, cleaned_df)
+
+    if is_show_report:
+        create_report(cleaned_df)
+    return cleaned_df
+
 
 if __name__ == "__main__":
-        pass
+    pass
+
+    # ax = df_smoothed.plot(title='Kalman Filter', figsize=(14,6), lw=1, rot=0)
+    # ax.set_xlabel('')
+    # ax.set_ylabel('BTC-USD')
+    # plt.tight_layout()
+    # sns.despine()
+
     # anomalies = detect_QuantileAD(df['Volume'], 0.99, 0.01)
     # anomalies = detect_InterQuartileRangeAD(df['Volume'], 1.5)
     # anomalies = detect_ThresholdAD(df['Volume'], 30, 15)

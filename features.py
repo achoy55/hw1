@@ -7,7 +7,6 @@ import talib as ta
 from tqdm import tqdm
 tqdm.pandas()
 
-
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -63,7 +62,7 @@ class FeatureEngineering:
     
     def create_rolling_features(self, df, features, window_sizes):
         """
-        Добавляет скользящие характеристики для указанных признаков и окон.
+        Statistics: Добавляет скользящие характеристики для указанных признаков и окон.
         
         df: DataFrame с исходными данными
         features: список признаков, для которых необходимо добавить скользящие характеристики
@@ -73,42 +72,106 @@ class FeatureEngineering:
         - обновленный DataFrame с новыми фичами
         - список новых колонок, которые можно использовать как признаки
         """
-        data = df.copy()  # Работаем с копией DataFrame
+        data = df.copy()  
         new_columns = []  # Список для хранения новых колонок
         
         # Для каждого признака и для каждого окна
         for feature in features:
             for window_size in window_sizes:
                 # Скользящее среднее
-                data[f'{feature}_mean_{window_size}'] = data[feature].rolling(window=window_size).mean()
-                new_columns.append(f'{feature}_mean_{window_size}')
+                new_col_name = f'{feature}_mean_{window_size}'
+                data[new_col_name] = data[feature].rolling(window=window_size).mean()
+                new_columns.append(new_col_name)
                 
                 # Скользящая медиана
-                data[f'{feature}_median_{window_size}'] = data[feature].rolling(window=window_size).median()
-                new_columns.append(f'{feature}_median_{window_size}')
+                new_col_name = f'{feature}_median_{window_size}'
+                data[new_col_name] = data[feature].rolling(window=window_size).median()
+                new_columns.append(new_col_name)
                 
                 # Скользящий минимум
-                data[f'{feature}_min_{window_size}'] = data[feature].rolling(window=window_size).min()
-                new_columns.append(f'{feature}_min_{window_size}')
+                new_col_name_min = f'{feature}_min_{window_size}'
+                data[new_col_name_min] = data[feature].rolling(window=window_size).min()
+                new_columns.append(new_col_name_min)
                 
                 # Скользящий максимум
-                data[f'{feature}_max_{window_size}'] = data[feature].rolling(window=window_size).max()
-                new_columns.append(f'{feature}_max_{window_size}')
+                new_col_name_max = f'{feature}_max_{window_size}'
+                data[new_col_name_max] = data[feature].rolling(window=window_size).max()
+                new_columns.append(new_col_name_max)
                 
                 # Скользящее стандартное отклонение
-                data[f'{feature}_std_{window_size}'] = data[feature].rolling(window=window_size).std()
-                new_columns.append(f'{feature}_std_{window_size}')
+                new_col_name = f'{feature}_std_{window_size}'
+                data[new_col_name] = data[feature].rolling(window=window_size).std()
+                new_columns.append(new_col_name)
                 
                 # Скользящий размах (макс - мин)
-                data[f'{feature}_range_{window_size}'] = data[f'{feature}_max_{window_size}'] - data[f'{feature}_min_{window_size}']
-                new_columns.append(f'{feature}_range_{window_size}')
+                new_col_name = f'{feature}_range_{window_size}'
+                data[new_col_name] = data[new_col_name_max] - data[new_col_name_min]
+                new_columns.append(new_col_name)
                 
                 # Скользящее абсолютное отклонение от медианы (mad)
-                data[f'{feature}_mad_{window_size}'] = data[feature].rolling(window=window_size).apply(lambda x: np.median(np.abs(x - np.median(x))), raw=True)
-                new_columns.append(f'{feature}_mad_{window_size}')
+                new_col_name = f'{feature}_mad_{window_size}'
+                data[new_col_name] = data[feature].rolling(window=window_size).apply(lambda x: np.median(np.abs(x - np.median(x))), raw=True)
+                new_columns.append(new_col_name)
         
         data.dropna(inplace=True)
         return data, new_columns
+
+    def create_lag_features(self, df, features, lag_periods):
+        """
+        Добавляет лаги для указанных признаков на указанное количество периодов назад.
+        
+        df: DataFrame с исходными данными
+        features: список признаков, для которых необходимо добавить лаги
+        lag_periods: сколько лагов назад необходимо создать
+        Возвращает: 
+        - обновленный DataFrame с лагами
+        - список новых колонок, которые можно использовать как признаки
+        """
+        data = df.copy()
+        new_columns = []  # Список для хранения новых колонок
+        
+        # Для каждого признака создаем лаги
+        for feature in features:
+            for lag in range(1, lag_periods + 1):
+                new_col_name = f'{feature}_lag_{lag}'
+                data[new_col_name] = data[feature].shift(lag)
+                new_columns.append(new_col_name)
+        
+        data.dropna(inplace=True)
+        return data, new_columns
+
+    def create_lag_and_target_forward_returns(self, df):
+        data = df.copy()
+
+        lags = self.params['lags']
+        q = self.params['quantile']
+
+        # For example [1, 5, 10, 21, 42, 63]
+        for lag in lags:
+            data[f'return_{lag}d'] = data.Close.pct_change(lag) \
+                            .pipe(lambda x: x.clip(lower=x.quantile(q),upper=x.quantile(1 - q))) \
+                            .add(1) \
+                            .pow(1 / lag) \
+                            .sub(1)
+
+        # Lag, shift the daily, (bi-)weekly, and monthly returns to use them as features
+        for t in [1, 2, 3, 4, 5]:
+            for lag in [1, 5, 10, 21]:
+                data[f'return_{lag}d_lag{t}'] = data[f'return_{lag}d'].shift(t * lag)
+
+        """
+        More specifically, we shift returns for time horizon t back by t days to use them as forward returns.
+        For instance, we shift the 5-day return from t0 to t5 back by 5 days so that this value
+         becomes the model target for t0.
+        We can generate daily, (bi-)weekly, and monthly forward returns
+        """
+        for t in [1, 5, 10, 21]:
+            data[f'target_{t}d'] = data[f'return_{t}d'].shift(-t)
+        
+        return data
+        
+        
+        
 
     def get_attributes(df):
         attributes = list(df.columns)
@@ -132,6 +195,9 @@ class FeatureEngineering:
         emas_period = 150
         atr_period = 20
         avg_period = 14
+        adx_period = 14
+        dmi_period = 14
+        bbands_period = 21
 
         if self.params.get('rsi') != None:
             rsi_period = self.params['rsi']
@@ -147,6 +213,12 @@ class FeatureEngineering:
             emas_period = self.params['emas']
         if self.params.get('atr') != None:
             emas_period = self.params['atr']
+        if self.params.get('adx') != None:
+            adx_period = self.params['adx']
+        if self.params.get('dmi') != None:
+            dmi_period = self.params['dmi']
+        if self.params.get('bbands') != None:
+            bbands_period = self.params['bbands']
 
         h = data['High']
         l = data['Low']
@@ -157,13 +229,23 @@ class FeatureEngineering:
         data['emaf']= ta.EMA(c, timeperiod=emaf_period) / ta.EMA(c, timeperiod=emaf_period).mean()
         data['emam']= ta.EMA(c, timeperiod=emam_period) / ta.EMA(c, timeperiod=emam_period).mean()
         data['emas']= ta.EMA(c, timeperiod=emas_period) / ta.EMA(c, timeperiod=emas_period).mean()
-        data['macd']=ta.MACD(c, fastperiod=macd_fast_period, slowperiod=macd_slow_period, signalperiod=macd_signal_period)[0] / \
-                     ta.MACD(c, fastperiod=macd_fast_period, slowperiod=macd_slow_period, signalperiod=macd_signal_period)[0].mean()
-        # Trend Strength, price trend
-        data['adx'] = ta.ADX(h, l, c, timeperiod=14) / ta.ADX(h, l, c, timeperiod=14).mean()
+        data['macd']= ta.MACD(c, fastperiod=macd_fast_period, slowperiod=macd_slow_period, signalperiod=macd_signal_period)[0] / \
+                    ta.MACD(c, fastperiod=macd_fast_period, slowperiod=macd_slow_period, signalperiod=macd_signal_period)[0].mean()
+        # Average Directional Index, Trend Strength, price trend
+        data['adx'] = ta.ADX(h, l, c, timeperiod=adx_period) / ta.ADX(h, l, c, timeperiod=adx_period).mean()
+        # Average Directional Movement Index Rating 
+        data['adxr'] = ta.ADXR(h, l, c, timeperiod=adx_period) / ta.ADXR(h, l, c, timeperiod=adx_period).mean()
         # The Average True Range, market volatility, risk management
         data['atr'] = ta.ATR(h, l, c, timeperiod=atr_period) / ta.ATR(h, l, c, timeperiod=atr_period).mean()
         
+        # Plus/Minus Directional Indicator 
+        # data['+dmi'] = ta.PLUS_DI(h, l, c ,timeperiod=dmi_period)
+        # data['-dmi'] = ta.MINUS_DI(h, l, c,timeperiod=dmi_period)
+
+        # Bollinger Bands
+        # data['bbands'] = ta.BBANDS(c, timeperiod=bbands_period, nbdevup=2, nbdevdn=2, matype=0)[0] / \
+        #                 ta.BBANDS(c, timeperiod=bbands_period, nbdevup=2, nbdevdn=2, matype=0)[0]
+
         # data['average'] = ta.MIDPRICE(h, l, timeperiod=avg_period) / ta.MIDPRICE(h, l, timeperiod=avg_period).mean()
         # data['ma40'] = ta.SMA(c, timeperiod=40)
         # data['ma80'] = ta.SMA(c, timeperiod=80)
@@ -210,6 +292,9 @@ class FeatureEngineering:
         return data[(data<lower) | (data>upper)]
 
     def _drop_outliers_IQR(self, data, column_name, min_outliers, max_outliers):
+        """
+        Drop outlier data
+        """
         lower, upper = self._calc_IQR(data[column_name], min_outliers, max_outliers)
         upper_array = np.where(data[column_name] >= upper)[0]
         lower_array = np.where(data[column_name] <= lower)[0]
@@ -221,6 +306,9 @@ class FeatureEngineering:
         return data
     
     def _calc_IQR(self, data, min_outliers, max_outliers):
+        """
+        Calculate quantile outliers
+        """
         q1=data.quantile(min_outliers)
         q3=data.quantile(max_outliers)
         IQR=q3-q1
