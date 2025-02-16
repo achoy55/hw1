@@ -17,7 +17,7 @@ from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from sklearn.svm import SVC
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
-from sklearn.model_selection import train_test_split,TimeSeriesSplit
+from sklearn.model_selection import train_test_split,TimeSeriesSplit, RandomizedSearchCV, GridSearchCV 
 from sklearn.feature_selection import SelectKBest, f_classif
 from sklearn.metrics import roc_auc_score, precision_score, recall_score, accuracy_score, f1_score
 from sklearn.impute import SimpleImputer
@@ -33,7 +33,10 @@ from data_validation import detect_SeasonalAD, detect_InterQuartileRangeAD, dete
 from data_validation import normalize_with_zcore, risk_rating_z_between_column, plot_anomalies, plot_anomalies_by_column, detect_anomalies_z, merge_anomalies_z
 from data_validation import plot_anomalies, plot_anomalies_by_column
 from data_validation import detect_anomalies_z, merge_anomalies_z
-
+import optuna
+from optuna import Trial, visualization
+from optuna.samplers import TPESampler
+optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 def save_model(model, name, ):
     os.makedirs('trained_model', exist_ok=True) 
@@ -52,6 +55,16 @@ def linear_regression_model(X_train, y_train, params):
     model = LinearRegression().set_params(**model_params)
     model.fit(X_train, y_train)
     return model
+
+def logistic_regression_models(X_train, y_train, params):
+    model_params = params.copy()
+    models = list()
+    for param in model_params:
+        model = LogisticRegression().set_params(**param)
+        model.fit(X_train, y_train)
+        models.append(model)
+    
+    return models
 
 def logistic_regression_model(X_train, y_train, params):
     """
@@ -80,6 +93,26 @@ def catboot_regressor_model(X_train, y_train, params):
     model.fit(X_train, y_train)
     return model
 
+def catboot_classifier_model_grid_search(X_train, y_train, X_val, y_val, parameters):
+    grid_params = parameters['grid_params'].copy()
+    params = parameters['params'].copy()
+    model = CatBoostClassifier(random_state=params['random_state'], verbose=params['verbose'],
+                               early_stopping_rounds=params['early_stopping_rounds'])
+    grid_search = GridSearchCV(estimator=model, param_grid=grid_params, scoring=params['scoring'],
+                               cv=params['cv'], n_jobs=params['n_jobs'])
+    grid_search.fit(X_train, y_train, eval_set=(X_val, y_val))
+    return grid_search
+
+def catboot_regressor_model_grid_search(X_train, y_train, X_val, y_val, parameters):
+    grid_params = parameters['grid_params'].copy()
+    params = parameters['params'].copy()
+    model = CatBoostRegressor(random_state=params['random_state'], verbose=params['verbose'],
+                               early_stopping_rounds=params['early_stopping_rounds'], task_type=params['task_type'])
+    grid_search = GridSearchCV(estimator=model, param_grid=grid_params, scoring=params['scoring'],
+                               cv=params['cv'], n_jobs=params['n_jobs'])
+    grid_search.fit(X_train, y_train, eval_set=(X_val, y_val))
+    return grid_search
+
 def random_forest_classifier_model(X_train, y_train, params):
     model_params = params.copy()
     model = RandomForestClassifier().set_params(**model_params)
@@ -103,6 +136,21 @@ def decision_tree_regressor_model(X_train, y_train, params):
     model = DecisionTreeRegressor().set_params(**model_params)
     model.fit(X_train, y_train)
     return model
+
+def decision_tree_classifier_model_grid_search(X_train, y_train, X_val, y_val, params):
+    model_params = params.copy()
+    model = DecisionTreeClassifier(random_state=model_params['random_state'],)
+    grid_search = GridSearchCV(model, model_params, cv=model_params['cv'], scoring=model_params['scoring'], )
+    # grid_search.fit(X_train, y_train)
+    grid_search.fit(X_train, y_train, eval_set=(X_val, y_val))
+    return grid_search
+
+def decision_tree_regressor_model_grid_search(X_train, y_train, params):
+    model_params = params.copy()
+    model = DecisionTreeRegressor(random_state=model_params['random_state'],)
+    grid_search = GridSearchCV(model, model_params, cv=model_params['cv'], scoring=model_params['scoring'], )
+    grid_search.fit(X_train, y_train)
+    return grid_search
 
 def knn_classifier_model(X_train, y_train, params):
     model_params = params.copy()
@@ -165,11 +213,14 @@ def model_fit(model_func, X_train, y_train, params):
 def model_fit_with_eval(model_func, X_train, y_train, eval_set, params):
     model_params = params.copy()
     if ModelFunc.CATBOOST_CLASS is model_func:
-        model = CatBoostClassifier(**model_params)
+        model = CatBoostClassifier(**model_params, random_seed=42, verbose=0)
     if ModelFunc.CATBOOST_REG is model_func:
-        model = CatBoostRegressor(**model_params)
+        model = CatBoostRegressor(**model_params, random_seed=42, verbose=0)
     model.fit(X_train, y_train, eval_set=eval_set)
     return model
+
+def model_fit_with_eval_set(model_func, X_train, y_train, eval_set, params):
+    return model_func(X_train, y_train, eval_set=eval_set, params=params)
 
 def normalize_MinMaxScaler(X_train, X_val, X_test):
     sc = MinMaxScaler()
@@ -189,6 +240,11 @@ def normalize_StandardScaler(X_train, X_val, X_test):
     X_val_scaled = sc.transform(X_val)
     X_test_scaled = sc.transform(X_test)
     return X_train_scaled, X_val_scaled, X_test_scaled
+
+def standard_scaler(data):
+    scaler = StandardScaler()
+    data.loc[:] = scaler.fit_transform(data)
+    return data
 
 def roc_auc_score_metric(sample1, sample2):
     return roc_auc_score(sample1, sample2)
@@ -232,11 +288,8 @@ def fit_models(model_funcs, X_train, y_train, X_val=None, y_val=None):
         if X_val is None or y_val is None:
             model = model_fit(model_func, X_train, y_train, params)
         else:
-            if model_func is ModelFunc.CATBOOST_CLASS:
-                params = dict(params, early_stopping_rounds=50)
-                model = model_fit_with_eval(model_func, X_train, y_train, eval_set=(X_val, y_val), params=params)
-            else:
-                model = model_fit(model_func, X_train, y_train, params)
+            model = model_fit_with_eval(model_func, X_train, y_train, eval_set=(X_val, y_val), params=params)
+
         models.append(model)
 
     return models
@@ -266,18 +319,6 @@ def blending_pred(*args):
     
 def stacking_pred(*args):
     return np.column_stack(args)
-
-def split_data_by_date(data_with_features):
-    test_start_date = pd.to_datetime(data_with_features.index.max()) - pd.DateOffset(months=1)
-    val_start_date = pd.to_datetime(data_with_features.index.max()) - pd.DateOffset(months=2)
-
-    train_data = data_with_features[pd.to_datetime(data_with_features.index) < val_start_date] 
-    val_data = data_with_features[(pd.to_datetime(data_with_features.index) >= val_start_date) & \
-                                  (pd.to_datetime(data_with_features.index) < test_start_date)]
-    test_data = data_with_features[pd.to_datetime(data_with_features.index) >= test_start_date]
-    # print(data_with_features.index[-1], train_data.index[-1], val_data.index[-1], test_data.index[-1])    
-
-    return train_data, val_data, test_data
 
 def show_importance(model, model_func, params):
     importance_function = model.coef_[0]
@@ -335,7 +376,6 @@ def plot_cv_indices(cv, X, y, group, ax, n_splits, lw=10):
     ax.set_title("{}".format(type(cv).__name__), fontsize=15)
     return ax
 
-
 def split_data(data, params):
     df = data.copy()
 
@@ -354,6 +394,39 @@ def split_data(data, params):
             train_data, val_data, test_data 
         )
 
+
+def split_data_by_date(data_with_features):
+    test_start_date = pd.to_datetime(data_with_features.index.max()) - pd.DateOffset(months=1)
+    val_start_date = pd.to_datetime(data_with_features.index.max()) - pd.DateOffset(months=2)
+
+    train_data = data_with_features[pd.to_datetime(data_with_features.index) < val_start_date] 
+    val_data = data_with_features[(pd.to_datetime(data_with_features.index) >= val_start_date) & \
+                                  (pd.to_datetime(data_with_features.index) < test_start_date)]
+    test_data = data_with_features[pd.to_datetime(data_with_features.index) >= test_start_date]
+    # print(data_with_features.index[-1], train_data.index[-1], val_data.index[-1], test_data.index[-1])    
+
+    return train_data, val_data, test_data
+
+def split_data_by_date2(data, params):
+    # Определяем дату начала тестовой выборки (последний месяц)
+    test_start_date = data.index.max() - pd.DateOffset(months=params['last_test_month_cnt'])
+
+    # Определяем дату начала валидационной выборки (предпоследний месяц)
+    val_start_date = data.index.max() - pd.DateOffset(months=params['last_val_month_cnt'])
+
+    # Разделение данных на тренировочную, валидационную и тестовую выборки по времени
+    train_data = data[data.index < val_start_date]  # все, что до предпоследнего месяца
+    val_data = data[(data.index >= val_start_date) & (data.index < test_start_date)]  # предпоследний месяц
+    test_data = data[data.index >= test_start_date]  # последний месяц
+
+    return train_data, val_data, test_data
+
+def split_by_features_and_target_variables(data, features):
+    """ Разделение на признаки (X) и целевую переменную (y) для каждой выборки """
+    X_data = data[features]
+    y_data = data['Target']
+    return X_data, y_data
+
 def predict_ensemble(data_with_features, params):
     model_funcs = params['model_funcs']
     features = params['features']
@@ -370,7 +443,7 @@ def predict_ensemble(data_with_features, params):
         X_train_scaled, X_val_scaled, X_test_scaled = normalize_StandardScaler(X_train, X_val, X_test)
     
         ## Modeling
-        # models = models_fit(model_funcs, X_train_scaled, y_train, X_val=X_val, y_val=y_val)
+        # models = fit_models(model_funcs, X_train_scaled, y_train, X_val=X_val, y_val=y_val)
         models = fit_models(model_funcs, X_train_scaled, y_train)
 
         ## Prediction on train, val and test samples
@@ -455,6 +528,58 @@ def predict_process(data_with_features, params):
     print(calculate_metrics_table(y_test_total, ensemble_test))
     print('===========================')  
 
+def objective_CatBoostClassifier(trial, X_train, y_train, X_val, y_val):
+    params = {
+        'iterations': trial.suggest_int('iterations', 100, 1000),
+        'depth': trial.suggest_int('depth', 3, 10),
+        'learning_rate': trial.suggest_loguniform('learning_rate', 0.01, 0.3),
+        'l2_leaf_reg': trial.suggest_loguniform('l2_leaf_reg', 1e-3, 10),
+        'bagging_temperature': trial.suggest_uniform('bagging_temperature', 0, 1),
+        'rsm': trial.suggest_uniform('rsm', 0.5, 1.0),
+        'subsample': trial.suggest_uniform('subsample', 0.5, 1.0),
+        'random_seed': 42,
+        'verbose': 0,
+        'early_stopping_rounds': 50,
+        # 'cv': 5,
+        # 'task_type': 'GPU', # error with subsample
+    }
+    
+    model = CatBoostClassifier(**params)
+    model.fit(X_train, y_train, eval_set=(X_val, y_val), early_stopping_rounds=50, verbose=0)
+    
+    y_train_pred = model.predict_proba(X_train)[:, 1]
+    y_val_pred = model.predict_proba(X_val)[:, 1]
+    
+    train_auc = roc_auc_score(y_train, y_train_pred)
+    val_auc = roc_auc_score(y_val, y_val_pred)
+    
+    # Штраф за переобучение (разница между тренировочной и валидационной метриками)
+    overfitting_penalty = abs(train_auc - val_auc)
+    # Целевая функция с учетом штрафа: при переобучении функция уменьшится
+    score = val_auc - overfitting_penalty
+    
+    return score
+
+def optuna_study_CatBoostClassifier(X_train, y_train, X_val, y_val, n_trials=100):
+    study = optuna.create_study(direction='maximize')
+    study.optimize(lambda trial: objective_CatBoostClassifier(trial, X_train, y_train, X_val, y_val), n_trials=n_trials, n_jobs=-1)
+    return study
+
+def optuna_plot_optimization_history(study):
+    #plot_optimization_histor: shows the scores from all trials as well as the best score so far at each point.
+    return optuna.visualization.plot_optimization_history(study)
+def optuna_plot_parallel_coordinate(study):
+    #plot_parallel_coordinate: interactively visualizes the hyperparameters and scores
+    return optuna.visualization.plot_parallel_coordinate(study)
+def optuna_plot_slice(study):
+    #plot_slice: shows the evolution of the search. You can see where in the hyperparameter space the trials were exploring.
+    return optuna.visualization.plot_slice(study)
+def optuna_plot_param_importances(study):
+    #plot_param_importances: shows the relative importances of hyperparameters.
+    return optuna.visualization.plot_param_importances(study)
+def optuna_plot_edf(study):
+    #plot_edf: plots the empirical distribution function of the objective.
+    return optuna.visualization.plot_edf(study)
 
 def get_model_params(model_func):
     match(model_func):
@@ -463,43 +588,96 @@ def get_model_params(model_func):
             }
         case ModelFunc.LOGISTIC_REG:
             return  {
-                'solver': 'liblinear', # default liblinear
-                'C': 0.1, # default 1.0
+                'solver': 'saga', # default liblinear,saga
+                'C': 10.0, # default 1.0
+                'penalty': 'elasticnet', # l1,l2,elasticnet
+                'l1_ratio': 0.5,
                 'max_iter': 1000, # default 100
+                'tol': 1e-8,
             }
         case ModelFunc.SVC_CLASS:
             return  {
                 'kernel': 'linear',
-                'C': 0.1,
+                'C': 10.0,             #Regularization params
                 'max_iter': 1000,
                 'random_state': 42,
             }
         case ModelFunc.CATBOOST_CLASS | ModelFunc.CATBOOST_REG:
             return {
-                'n_estimators':1000,
+                'n_estimators': 1000,       # Общее количество деревьев (итераций). Меньшее значение снижает вероятность переобучения.
+                'random_state': 42,         # Устанавливает начальное значение для генератора случайных чисел, что обеспечивает воспроизводимость результатов.
+                'max_depth': 6,             # Глубина каждого дерева. Меньшая глубина снижает вероятность переобучения.
+                'learning_rate': 0.1,       # Темп обучения. Более низкое значение помогает улучшить стабильность и уменьшить вероятность переобучения.
+                'l2_leaf_reg': 3.0,         # Коэффициент L2-регуляризации на веса в листьях. Увеличивает штраф за большие веса и снижает переобучение.
+                'bagging_temperature': 1.0, # Параметр, контролирующий интенсивность случайности в выборке для каждого дерева. Чем выше значение, тем больше разнообразие деревьев.
+                'rsm': 0.8,                 # Доля признаков, используемых при обучении каждого дерева. Значение меньше 1 уменьшает переобучение.
+                'subsample': 0.8,           # but error # Доля данных, используемых для каждого дерева. Чем меньше значение, тем сильнее регуляризация и выше разнообразие деревьев.
+                'early_stopping_rounds': 50,
+                # 'task_type': 'GPU', # Error with rsm
+                'verbose': 0,
+            }
+        case ModelFunc.CATBOOST_CLASS_GRID_SEARCH | ModelFunc.CATBOOST_REG_GRID_SEARCH:
+            return {
+                'n_estimators': [200, 300, 400],
+                'max_depth': [4, 6, 8, 10],
+                'learning_rate': [0.01, 0.05, 0.1, 0.2],
+                'l2_leaf_reg': [1.0, 3.0, 5.0, 7.0],
+                'bagging_temperature': [0, 0.3, 0.6, 1.0],
+                'rsm': [0.6, 0.8, 1.0],
+                'subsample': [0.6, 0.8, 1.0],
+
+                'scoring': 'roc_auc',
+                'cv': 3,
+                'n_jobs': -1,
+                'early_stopping_rounds': 50,
                 'random_state': 42,
-                'max_depth': 6,
-                'learning_rate': 0.01,
                 'task_type': 'GPU',
                 'verbose': 0,
             }
         case ModelFunc.XGBOOST_CLASS | ModelFunc.XGBOOST_REG:
             return {
-                'n_estimators': 100,
-                'random_state': 42,
-                'learning_rate': 0.1,
+                'n_estimators': 100,      
+                'random_state': 42,       
+                'learning_rate': 0.1,     
+                'subsample':0.8,               #0.5-1.0
+                # 'reg_alpha': 1.0             #L1 regularization term on weights (xgb's alpha).
+                'reg_lambda': 3.0,             #L2 regularization term on weights (xgb's lambda).
+                'colsample_bytree': 5.0,       #Subsample ratio of columns when constructing each tree.
+                # 'colsample_bylevel': 3.0,    #ubsample ratio of columns for each level.
+                'early_stopping_rounds': 50,
                 'device': 'cuda',
+                'verbosity': 0,
             }
         case ModelFunc.RANDOM_FOREST_CLASS | ModelFunc.RANDOM_FOREST_REG:
             return {
-                'n_estimators': 200,
-                'random_state': 42,
-                # 'max_depth': 4,
+                'n_estimators': 200,     # Количество деревьев в лесу. Большее количество деревьев может улучшить точность, но увеличивает время обучения.
+                'max_depth': 5,          # Максимальная глубина каждого дерева. Ограничение глубины снижает вероятность переобучения.
+                'min_samples_split': 10, # Минимальное число образцов для разделения узла. Большее значение предотвращает разделение узлов с малым числом выборок.
+                'min_samples_leaf': 5,   # Минимальное количество выборок, которое должно находиться в каждом листе. Увеличение значения делает модель более устойчивой.
+                # 'max_features': 'sqrt',         # Максимальное количество признаков, используемых при поиске лучшего разбиения. "sqrt" берёт корень из общего числа признаков.
+                # 'max_leaf_nodes': 20,           # Максимальное число листьев в каждом дереве. Ограничивает количество конечных узлов, упрощая структуру дерева.
+                # 'min_impurity_decrease': 0.01,  # Минимальное уменьшение нечистоты, требуемое для разделения. Предотвращает создание слишком мелких узлов.
+                # 'bootstrap': True,              # Использовать бутстрэп (выборка с возвращением) для создания деревьев. Это повышает устойчивость модели.
+                'random_state': 42,      # Устанавливает начальное значение для генератора случайных чисел, что обеспечивает воспроизводимость результатов.
             }
         case ModelFunc.DECISION_TREE_CLASS | ModelFunc.DECISION_TREE_REG:
             return  {
                 'max_depth': 4,
+                'min_samples_split': 10,
+                'min_samples_leaf': 5,
+                'max_leaf_nodes': 15,  
                 'random_state': 42,
+            }
+        case ModelFunc.DECISION_TREE_CLASS_GRID_SEARCH | ModelFunc.DECISION_TREE_REG_GRID_SEARCH:
+            return  {
+                'max_depth': [4, 6, 8,],
+                'min_samples_split': [5, 7, 9],
+                'min_samples_leaf': [3, 5, 7],
+                'max_leaf_nodes': [5, 10, 15],  
+                'random_state': 42,
+                'scoring': 'roc_auc',       # Оценочная метрика для выбора наилучшей модели
+                'cv': 3,                    # Количество фолдов для кросс-валидации
+                'n_jobs': -1,               # Параллельное выполнение
             }
         case ModelFunc.KNN_CLASS | ModelFunc.KNN_REG:
             return  {
@@ -533,7 +711,6 @@ class ModelFunc(Enum):
     RANDOM_FOREST_CLASS = random_forest_classifier_model
     RANDOM_FOREST_REG = random_forest_regressor_model
     DECISION_TREE_CLASS = decision_tree_classifier_model
-    DECISION_TREE_REG = decision_tree_regressor_model
     XGBOOST_CLASS = xgboost_classifier_model
     XGBOOST_REG = xgboost_regressor_model
     CATBOOST_CLASS = catboot_classifier_model
@@ -542,6 +719,11 @@ class ModelFunc(Enum):
     KNN_REG = knn_regressor_model
     SVC_CLASS = svc_classifier_model
     LSTM_CLASS = lstm_model
+ 
+    DECISION_TREE_CLASS_GRID_SEARCH = decision_tree_classifier_model_grid_search
+    DECISION_TREE_REG_GRID_SEARCH = decision_tree_regressor_model_grid_search
+    CATBOOST_CLASS_GRID_SEARCH = catboot_classifier_model_grid_search
+    CATBOOST_REG_GRID_SEARCH = catboot_regressor_model_grid_search
 
 
 if __name__ == "__main__":
