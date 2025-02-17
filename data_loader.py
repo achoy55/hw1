@@ -34,15 +34,16 @@ def _save_forex_data(tickers, data, save_location):
 def _load_data_at_start_date(tickers, period, time_interval, dir):
     dir = _create_data_folder(dir)
 
-    delta = timedelta(days=period) # 
+    delta = timedelta(days=period)
     today = datetime.now()
+    print(f"date: {today+delta}")
 
     data = yf.download(tickers, today+delta, interval=time_interval, group_by='ticker')
     data.index.names = ['Date']
     
     return data
 
-def _load_data_by_period(tickers, start_date, end_date, time_interval, dir):
+def _load_data_by_date_range(tickers, start_date, end_date, time_interval, dir):
     dir = _create_data_folder(dir)
 
     data = yf.download(tickers, start_date, end_date, interval=time_interval, group_by='ticker')
@@ -50,10 +51,10 @@ def _load_data_by_period(tickers, start_date, end_date, time_interval, dir):
   
     return data
 
-def load_data_at_start_date(tickers, period, time_interval, dir='crypto_data'):
+def load_data_at_start_date(tickers, period, time_interval, dir):
     dir = _create_data_folder(dir)
 
-    print(f'Start load data, tickers {tickers}, interval: {time_interval}, from: {period}')
+    print(f'Start load data, tickers {tickers}, interval: {time_interval}, start date: {period}')
 
     data = _load_data_at_start_date(tickers, period, time_interval, dir)
     data.index.names = ['Date']
@@ -62,14 +63,28 @@ def load_data_at_start_date(tickers, period, time_interval, dir='crypto_data'):
     data.info()
 
     print('Download data completed')
+    return data
+
+def load_data_by_period(tickers, period, time_interval, dir='crypto_data'):
+    dir = _create_data_folder(dir)
+
+    print(f'Start load data, tickers {tickers}, interval: {time_interval}, period: {period}')
+
+    data = yf.download(tickers, period=period, interval=time_interval, group_by='ticker')
+    data.index.names = ['Date']
+    
+    _save_data(tickers, data, dir)
+    data.info()
+
+    print('Download data completed')
     return dir
 
-def load_data_period(tickers, start_date, end_date, time_interval, dir='crypto_data'):
+def load_data_by_date_range(tickers, start_date, end_date, time_interval, dir='crypto_data'):
     dir = _create_data_folder(dir)
     
     print(f'Start load data for ticker {tickers}, period [{start_date} - {end_date}], interval: {time_interval}')
 
-    data = _load_data_by_period(tickers, start_date, end_date, time_interval, dir)
+    data = _load_data_by_date_range(tickers, start_date, end_date, time_interval, dir)
     data.index.names = ['Date']
   
     _save_data(tickers, data, dir)
@@ -97,7 +112,7 @@ def load_forex_data_period(tickers, start_date, end_date, time_interval, dir='fo
     
     print(f'Start load forex data for ticker {tickers}, period [{start_date} - {end_date}], interval: {time_interval}')
 
-    data = _load_data_by_period(tickers, start_date, end_date, time_interval)
+    data = _load_data_by_date_range(tickers, start_date, end_date, time_interval)
     data.index.names = ['Date']
   
     _save_forex_data(tickers, data, dir)
