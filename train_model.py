@@ -221,6 +221,9 @@ def model_fit_with_eval(model_func, X_train, y_train, eval_set=None, params=None
         model_params = params.copy()
     return model_func(X_train, y_train, eval_set=eval_set, params=model_params)
 
+def model_fit_with_eval_set(model_func, X_train, y_train, eval_set, params):
+    return model_func(X_train, y_train, eval_set=eval_set, params=params)
+
 def normalize_MinMaxScaler(X_train, X_val, X_test):
     sc = MinMaxScaler()
     X_train_scaled = sc.fit_transform(X_train)
@@ -692,6 +695,17 @@ def get_model_params(model_func):
                 'n_jobs': -1,               # Параллельное выполнение
                 'random_state': _random_state,
                 'verbose': 0,
+            }
+        case ModelFunc.DECISION_TREE_CLASS_GRID_SEARCH | ModelFunc.DECISION_TREE_REG_GRID_SEARCH:
+            return  {
+                'max_depth': [4, 6, 8,],
+                'min_samples_split': [5, 7, 9],
+                'min_samples_leaf': [3, 5, 7],
+                'max_leaf_nodes': [5, 10, 15],  
+                'random_state': 42,
+                'scoring': 'roc_auc',       # Оценочная метрика для выбора наилучшей модели
+                'cv': 3,                    # Количество фолдов для кросс-валидации
+                'n_jobs': -1,               # Параллельное выполнение
             }
         case ModelFunc.KNN_CLASS | ModelFunc.KNN_REG:
             return  {
