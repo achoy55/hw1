@@ -1,3 +1,4 @@
+from tabnanny import verbose
 import pandas as pd
 import numpy as np
 from enum import Enum
@@ -38,6 +39,10 @@ from optuna import Trial, visualization
 from optuna.samplers import TPESampler
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
+_random_state = 42
+def set_random_state(seed):
+    _random_state = seed
+
 def save_model(model, name, ):
     os.makedirs('trained_model', exist_ok=True) 
     joblib.dump(model, f'trained_model/{name}.joblib')
@@ -52,7 +57,7 @@ def detect_anomalies_adtk(df, column_name):
 
 def linear_regression_model(X_train, y_train, params):
     model_params = params.copy()
-    model = LinearRegression().set_params(**model_params)
+    model = LinearRegression(**model_params, random_state=42, verbose=0)
     model.fit(X_train, y_train)
     return model
 
@@ -60,7 +65,7 @@ def logistic_regression_models(X_train, y_train, params):
     model_params = params.copy()
     models = list()
     for param in model_params:
-        model = LogisticRegression().set_params(**param)
+        model = LogisticRegression(**param, random_state=_random_state, verbose=0)
         model.fit(X_train, y_train)
         models.append(model)
     
@@ -77,14 +82,14 @@ def logistic_regression_model(X_train, y_train, params):
         - **max_iter**: Максимальное количество итераций для оптимизации. Увеличьте, если модель не сходится. Например, `max_iter=1000`.
     """
     model_params = params.copy()
-    model = LogisticRegression().set_params(**model_params)
+    model = LogisticRegression(**model_params, random_state=42, verbose=0)
     model.fit(X_train, y_train)
     return model
 
-def catboot_classifier_model(X_train, y_train, params):
+def catboot_classifier_model(X_train, y_train, eval_set=None, params=None):
     model_params = params.copy()
     model = CatBoostClassifier(**model_params)
-    model.fit(X_train, y_train)
+    model.fit(X_train, y_train, eval_set=eval_set)
     return model
 
 def catboot_regressor_model(X_train, y_train, params):
@@ -115,25 +120,25 @@ def catboot_regressor_model_grid_search(X_train, y_train, X_val, y_val, paramete
 
 def random_forest_classifier_model(X_train, y_train, params):
     model_params = params.copy()
-    model = RandomForestClassifier().set_params(**model_params)
+    model = RandomForestClassifier(**model_params, random_state=_random_state, verbose=0)
     model.fit(X_train, y_train)
     return model
 
 def random_forest_regressor_model(X_train, y_train, params):
     model_params = params.copy()
-    model = RandomForestRegressor().set_params(**model_params)
+    model = RandomForestRegressor(**model_params, random_state=_random_state, verbose=0)
     model.fit(X_train, y_train)
     return model
 
 def decision_tree_classifier_model(X_train, y_train, params):
     model_params = params.copy()
-    model = DecisionTreeClassifier().set_params(**model_params)
+    model = DecisionTreeClassifier(**model_params, random_state=_random_state, verbose=0)
     model.fit(X_train, y_train)
     return model
 
 def decision_tree_regressor_model(X_train, y_train, params):
     model_params = params.copy()
-    model = DecisionTreeRegressor().set_params(**model_params)
+    model = DecisionTreeRegressor(**model_params, random_state=_random_state, verbose=0)
     model.fit(X_train, y_train)
     return model
 
@@ -154,31 +159,31 @@ def decision_tree_regressor_model_grid_search(X_train, y_train, params):
 
 def knn_classifier_model(X_train, y_train, params):
     model_params = params.copy()
-    model = KNeighborsClassifier().set_params(**model_params)
+    model = KNeighborsClassifier(**model_params, random_state=_random_state, verbose=0)
     model.fit(X_train, y_train)
     return model
 
 def knn_regressor_model(X_train, y_train, params):
     model_params = params.copy()
-    model = KNeighborsRegressor().set_params(**model_params)
+    model = KNeighborsRegressor(**model_params, random_state=_random_state, verbose=0)
     model.fit(X_train, y_train)
     return model
 
 def xgboost_classifier_model(X_train, y_train, params):
     model_params = params.copy()
-    model = XGBClassifier().set_params(**model_params)
+    model = XGBClassifier(**model_params, random_state=_random_state, verbose=0)
     model.fit(X_train, y_train)
     return model
 
 def xgboost_regressor_model(X_train, y_train, params):
     model_params = params.copy()
-    model = XGBRegressor().set_params(**model_params)
+    model = XGBRegressor(**model_params, random_state=_random_state, verbose=0)
     model.fit(X_train, y_train)
     return model
 
 def svc_classifier_model(X_train, y_train, params):
     model_params = params.copy()
-    model = SVC().set_params(**model_params)
+    model = SVC(**model_params, random_state=_random_state, verbose=0)
     model.fit(X_train, y_train)
     return model
 
@@ -210,17 +215,11 @@ def lstm_model(X_train, y_train, params):
 def model_fit(model_func, X_train, y_train, params):
     return model_func(X_train, y_train, params)
 
-def model_fit_with_eval(model_func, X_train, y_train, eval_set, params):
-    model_params = params.copy()
-    if ModelFunc.CATBOOST_CLASS is model_func:
-        model = CatBoostClassifier(**model_params, random_seed=42, verbose=0)
-    if ModelFunc.CATBOOST_REG is model_func:
-        model = CatBoostRegressor(**model_params, random_seed=42, verbose=0)
-    model.fit(X_train, y_train, eval_set=eval_set)
-    return model
-
-def model_fit_with_eval_set(model_func, X_train, y_train, eval_set, params):
-    return model_func(X_train, y_train, eval_set=eval_set, params=params)
+def model_fit_with_eval(model_func, X_train, y_train, eval_set=None, params=None):
+    model_params = None
+    if params is not None:
+        model_params = params.copy()
+    return model_func(X_train, y_train, eval_set=eval_set, params=model_params)
 
 def normalize_MinMaxScaler(X_train, X_val, X_test):
     sc = MinMaxScaler()
@@ -281,12 +280,13 @@ def top_n_weighted_factors(importance_function, features, top):
     print(f"=== Top-{top} most important factors ===")
     print(top_features)
 
-def fit_models(model_funcs, X_train, y_train, X_val=None, y_val=None):
+def fit_models(model_funcs, X_train, y_train, X_val=None, y_val=None, params=None):
     models = list()
     for model_func in model_funcs:
-        params = get_model_params(model_func)
+        if params is None:
+            params = get_model_params(model_func)
         if X_val is None or y_val is None:
-            model = model_fit(model_func, X_train, y_train, params)
+            model = model_fit(model_func, X_train, y_train, **params)
         else:
             model = model_fit_with_eval(model_func, X_train, y_train, eval_set=(X_val, y_val), params=params)
 
@@ -394,6 +394,14 @@ def split_data(data, params):
             train_data, val_data, test_data 
         )
 
+def train_valid_test_split_data(data, params):
+    df = data.copy()
+    max_train_size = params['max_train_size']
+    test_size = params['test_size']
+
+    train_data, valid_test = train_test_split(data, test_size=max_train_size, random_state=_random_state, shuffle=False)
+    valid_data, test_data = train_test_split(valid_test, test_size=test_size, random_state=_random_state, shuffle=False)
+    return train_data, valid_data, test_data
 
 def split_data_by_date(data_with_features):
     test_start_date = pd.to_datetime(data_with_features.index.max()) - pd.DateOffset(months=1)
@@ -594,31 +602,34 @@ def get_model_params(model_func):
                 'l1_ratio': 0.5,
                 'max_iter': 1000, # default 100
                 'tol': 1e-8,
+                'random_state': _random_state,
+                'verbose': 0,
             }
         case ModelFunc.SVC_CLASS:
             return  {
                 'kernel': 'linear',
                 'C': 10.0,             #Regularization params
                 'max_iter': 1000,
-                'random_state': 42,
+                'random_state': _random_state,
+                'verbose': 0,
             }
         case ModelFunc.CATBOOST_CLASS | ModelFunc.CATBOOST_REG:
             return {
-                'n_estimators': 1000,       # Общее количество деревьев (итераций). Меньшее значение снижает вероятность переобучения.
-                'random_state': 42,         # Устанавливает начальное значение для генератора случайных чисел, что обеспечивает воспроизводимость результатов.
+                'n_estimators': 1000,       # Общее количество деревьев (iterations). Меньшее значение снижает вероятность переобучения.
                 'max_depth': 6,             # Глубина каждого дерева. Меньшая глубина снижает вероятность переобучения.
                 'learning_rate': 0.1,       # Темп обучения. Более низкое значение помогает улучшить стабильность и уменьшить вероятность переобучения.
                 'l2_leaf_reg': 3.0,         # Коэффициент L2-регуляризации на веса в листьях. Увеличивает штраф за большие веса и снижает переобучение.
                 'bagging_temperature': 1.0, # Параметр, контролирующий интенсивность случайности в выборке для каждого дерева. Чем выше значение, тем больше разнообразие деревьев.
                 'rsm': 0.8,                 # Доля признаков, используемых при обучении каждого дерева. Значение меньше 1 уменьшает переобучение.
-                'subsample': 0.8,           # but error # Доля данных, используемых для каждого дерева. Чем меньше значение, тем сильнее регуляризация и выше разнообразие деревьев.
+                'subsample': 0.8,           # Доля данных, используемых для каждого дерева. Чем меньше значение, тем сильнее регуляризация и выше разнообразие деревьев.
                 'early_stopping_rounds': 50,
-                # 'task_type': 'GPU', # Error with rsm
+                # 'task_type': 'GPU', # Error with subsample
+                'random_state': _random_state,
                 'verbose': 0,
             }
         case ModelFunc.CATBOOST_CLASS_GRID_SEARCH | ModelFunc.CATBOOST_REG_GRID_SEARCH:
             return {
-                'n_estimators': [200, 300, 400],
+                'n_estimators': [200, 300, 400], #iterations
                 'max_depth': [4, 6, 8, 10],
                 'learning_rate': [0.01, 0.05, 0.1, 0.2],
                 'l2_leaf_reg': [1.0, 3.0, 5.0, 7.0],
@@ -630,14 +641,13 @@ def get_model_params(model_func):
                 'cv': 3,
                 'n_jobs': -1,
                 'early_stopping_rounds': 50,
-                'random_state': 42,
                 'task_type': 'GPU',
+                'random_state': _random_state,
                 'verbose': 0,
             }
         case ModelFunc.XGBOOST_CLASS | ModelFunc.XGBOOST_REG:
             return {
                 'n_estimators': 100,      
-                'random_state': 42,       
                 'learning_rate': 0.1,     
                 'subsample':0.8,               #0.5-1.0
                 # 'reg_alpha': 1.0             #L1 regularization term on weights (xgb's alpha).
@@ -646,6 +656,7 @@ def get_model_params(model_func):
                 # 'colsample_bylevel': 3.0,    #ubsample ratio of columns for each level.
                 'early_stopping_rounds': 50,
                 'device': 'cuda',
+                'random_state': _random_state,       
                 'verbosity': 0,
             }
         case ModelFunc.RANDOM_FOREST_CLASS | ModelFunc.RANDOM_FOREST_REG:
@@ -658,15 +669,17 @@ def get_model_params(model_func):
                 # 'max_leaf_nodes': 20,           # Максимальное число листьев в каждом дереве. Ограничивает количество конечных узлов, упрощая структуру дерева.
                 # 'min_impurity_decrease': 0.01,  # Минимальное уменьшение нечистоты, требуемое для разделения. Предотвращает создание слишком мелких узлов.
                 # 'bootstrap': True,              # Использовать бутстрэп (выборка с возвращением) для создания деревьев. Это повышает устойчивость модели.
-                'random_state': 42,      # Устанавливает начальное значение для генератора случайных чисел, что обеспечивает воспроизводимость результатов.
-            }
+                'random_state': _random_state,      # Устанавливает начальное значение для генератора случайных чисел, что обеспечивает воспроизводимость результатов.
+                'verbose': 0,
+          }
         case ModelFunc.DECISION_TREE_CLASS | ModelFunc.DECISION_TREE_REG:
             return  {
                 'max_depth': 4,
                 'min_samples_split': 10,
                 'min_samples_leaf': 5,
                 'max_leaf_nodes': 15,  
-                'random_state': 42,
+                'random_state': _random_state,
+                'verbose': 0,
             }
         case ModelFunc.DECISION_TREE_CLASS_GRID_SEARCH | ModelFunc.DECISION_TREE_REG_GRID_SEARCH:
             return  {
@@ -674,10 +687,11 @@ def get_model_params(model_func):
                 'min_samples_split': [5, 7, 9],
                 'min_samples_leaf': [3, 5, 7],
                 'max_leaf_nodes': [5, 10, 15],  
-                'random_state': 42,
                 'scoring': 'roc_auc',       # Оценочная метрика для выбора наилучшей модели
                 'cv': 3,                    # Количество фолдов для кросс-валидации
                 'n_jobs': -1,               # Параллельное выполнение
+                'random_state': _random_state,
+                'verbose': 0,
             }
         case ModelFunc.KNN_CLASS | ModelFunc.KNN_REG:
             return  {
@@ -686,6 +700,8 @@ def get_model_params(model_func):
                 'p': 1, #default 2
                 # 'metric': 'minkowski', # minkowski
                 'n_jobs': 1,
+                'random_state': _random_state,
+                'verbose': 0,
             }
         case ModelFunc.LSTM_CLASS:
             return  {
@@ -700,6 +716,7 @@ def get_model_params(model_func):
                 'loss': 'mse',
                 'return_sequences': True,
                 'shuffle': True,
+                'random_state': _random_state,
                 'verbose': 0,
             }
         case _:
