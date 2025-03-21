@@ -11,3 +11,5 @@ docker/data/
 trained_model/
 redis_cli/__pycache__/
 event/__pycache__/
+.checkpoints/
+*.log
