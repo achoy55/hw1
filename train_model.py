@@ -24,11 +24,17 @@ from sklearn.metrics import roc_auc_score, precision_score, recall_score, accura
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.datasets import make_classification
-import keras
-from keras import optimizers
-from keras.callbacks import History
-from keras.models import Model, Sequential
-from keras.layers import Dense, Dropout, LSTM, Input, Activation, concatenate
+
+import tensorflow as tf
+from tensorflow.keras import layers
+
+# import keras
+# from keras import optimizers
+# from keras.callbacks import History
+# from keras.models import Model, Sequential
+# from keras.layers import Dense, Dropout, LSTM, Input, Activation, concatenate
+
+
 import import_ipynb
 from data_validation import detect_SeasonalAD, detect_InterQuartileRangeAD, detect_AutoregressionAD, detect_QuantileAD
 from data_validation import normalize_with_zcore, risk_rating_z_between_column, plot_anomalies, plot_anomalies_by_column, detect_anomalies_z, merge_anomalies_z
@@ -187,30 +193,30 @@ def svc_classifier_model(X_train, y_train, params):
     model.fit(X_train, y_train)
     return model
 
-def lstm_model(X_train, y_train, params):
-    n_steps = params['n_steps']
-    n_features = params['n_features']
-    batch_size = params['batch_size']
-    epochs = params['epochs']
-    units = params['units']
-    lose = params['lose']
-    optimizer = params['optimizer']
-    validation_split = params['verbose']
-    return_sequences = params['return_sequences']
-    shuffle = params['shuffle']
-    activation = params['activation']
-    verbose = params['verbose']
+# def lstm_model(X_train, y_train, params):
+#     n_steps = params['n_steps']
+#     n_features = params['n_features']
+#     batch_size = params['batch_size']
+#     epochs = params['epochs']
+#     units = params['units']
+#     lose = params['lose']
+#     optimizer = params['optimizer']
+#     validation_split = params['verbose']
+#     return_sequences = params['return_sequences']
+#     shuffle = params['shuffle']
+#     activation = params['activation']
+#     verbose = params['verbose']
     
-    model = Sequential()
-    # model.add(LSTM(units, activation='relu', return_sequences=True, input_shape=(n_steps, n_features)))
-    model.add(LSTM(units, activation=activation, return_sequences=return_sequences, input_shape=(n_steps, n_features)))
-    model.add(Dense(1))
+#     model = Sequential()
+#     # model.add(LSTM(units, activation='relu', return_sequences=True, input_shape=(n_steps, n_features)))
+#     model.add(LSTM(units, activation=activation, return_sequences=return_sequences, input_shape=(n_steps, n_features)))
+#     model.add(Dense(1))
 
-    model.compile(optimizer=optimizer, loss=lose)
-    # model.fit(x=X_train, y=y_train, batch_size=15, epochs=30, shuffle=True, validation_split = 0.1)
-    model.fit(x=X_train, y=y_train, batch_size=batch_size, epochs=epochs, \
-              shuffle=shuffle, validation_split=validation_split, verbose=verbose)
-    return model
+#     model.compile(optimizer=optimizer, loss=lose)
+#     # model.fit(x=X_train, y=y_train, batch_size=15, epochs=30, shuffle=True, validation_split = 0.1)
+#     model.fit(x=X_train, y=y_train, batch_size=batch_size, epochs=epochs, \
+#               shuffle=shuffle, validation_split=validation_split, verbose=verbose)
+#     return model
 
 def model_fit(model_func, X_train, y_train, params):
     return model_func(X_train, y_train, params)
@@ -242,6 +248,26 @@ def normalize_StandardScaler(X_train, X_val, X_test):
     X_val_scaled = sc.transform(X_val)
     X_test_scaled = sc.transform(X_test)
     return X_train_scaled, X_val_scaled, X_test_scaled
+
+def minmax_scaler_df(X_train, X_val, X_test):
+    sc = MinMaxScaler()
+    X_train_scaled = sc.fit_transform(X_train)
+    X_val_scaled = sc.transform(X_val)
+    X_test_scaled = sc.transform(X_test)
+    return pd.DataFrame(X_train_scaled, index=X_train.index, columns=X_train.columns), \
+        pd.DataFrame(X_val_scaled, index=X_val.index, columns=X_val.columns), \
+        pd.DataFrame(X_test_scaled, index=X_test.index, columns=X_test.columns), \
+            sc
+
+def standard_scaler_df(X_train, X_val, X_test):
+    sc = StandardScaler()
+    X_train_scaled = sc.fit_transform(X_train)
+    X_val_scaled = sc.transform(X_val)
+    X_test_scaled = sc.transform(X_test)
+    return pd.DataFrame(X_train_scaled, index=X_train.index, columns=X_train.columns), \
+        pd.DataFrame(X_val_scaled, index=X_val.index, columns=X_val.columns), \
+        pd.DataFrame(X_test_scaled, index=X_test.index, columns=X_test.columns), \
+            sc
 
 def standard_scaler(data):
     scaler = StandardScaler()
@@ -592,6 +618,104 @@ def optuna_plot_edf(study):
     #plot_edf: plots the empirical distribution function of the objective.
     return optuna.visualization.plot_edf(study)
 
+class EmbedTransposeLayer(tf.keras.layers.Layer):
+    def __init__(self, perm: list[int], **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.perm = perm
+
+    def call(self, inputs):
+        return tf.transpose(inputs, perm=self.perm)
+    
+def batchnorm(inputs, ff_dim: int):
+    """
+        Batch Norm - can help correct training that is slow or unstable.
+        Dropuot - can help correct overfitting.
+         Randomly turning off neurons prevents overfitting and helps make the network more robust.
+         But increases training time because the network uses fewer active neurons at each stage
+    """
+
+    norm = layers.BatchNormalization
+
+    # Time mixing
+    x = norm()(inputs) #Error using list as axis
+
+    """
+    Error using tf.transpose as function, should use as class
+    A KerasTensor cannot be used as input to a TensorFlow function. A KerasTensor is a symbolic placeholder for a shape and
+      dtype, used when constructing Keras Functional models or Keras Functions. You can only use it as input to a Keras layer or
+      a Keras operation (from the namespaces `keras.layers` and `keras.operations`).
+    """
+
+    x = EmbedTransposeLayer(perm=[0, 2, 1])(x)  # [Batch, Channel, Input Length]
+    x = layers.Dense(x.shape[-1], activation='relu')(x)
+    x = EmbedTransposeLayer(perm=[0, 2, 1])(x)  # [Batch, Input Length, Channel]
+    x = layers.Dropout(0.7)(x)
+    res = x + inputs
+
+    # Feature mixing
+    x = norm()(res)
+    x = layers.Dense(ff_dim, activation='relu')(x)  # [Batch, Input Length, FF_Dim]
+    x = layers.Dropout(0.7)(x)
+    x = layers.Dense(inputs.shape[-1])(x)  # [Batch, Input Length, Channel]
+    x = layers.Dropout(0.7)(x)
+    return x + res
+
+def layernorm(inputs, ff_dim: int):
+    """
+        Batch Norm - can help correct training that is slow or unstable.
+        Dropuot - can help correct overfitting.
+         Randomly turning off neurons prevents overfitting and helps make the network more robust.
+         But increases training time because the network uses fewer active neurons at each stage
+    """
+
+    norm = layers.LayerNormalization
+
+    # Time mixing
+    x = norm(axis=[-2, -1])(inputs)
+
+    """
+    Error using tf.transpose as function, should use as class
+    A KerasTensor cannot be used as input to a TensorFlow function. A KerasTensor is a symbolic placeholder for a shape and
+      dtype, used when constructing Keras Functional models or Keras Functions. You can only use it as input to a Keras layer or
+      a Keras operation (from the namespaces `keras.layers` and `keras.operations`).
+    """
+
+    x = EmbedTransposeLayer(perm=[0, 2, 1])(x)  # [Batch, Channel, Input Length]
+    x = layers.Dense(x.shape[-1], activation='relu')(x)
+    x = EmbedTransposeLayer(perm=[0, 2, 1])(x)  # [Batch, Input Length, Channel]
+    x = layers.Dropout(0.7)(x)
+    res = x + inputs
+
+    # Feature mixing
+    x = norm(axis=[-2, -1])(res)
+    x = layers.Dense(ff_dim, activation='relu')(x)  # [Batch, Input Length, FF_Dim]
+    x = layers.Dropout(0.7)(x)
+    x = layers.Dense(inputs.shape[-1])(x)  # [Batch, Input Length, Channel]
+    x = layers.Dropout(0.7)(x)
+    return x + res
+
+def build_tf_model(params):
+    input_shape = params['input_shape']
+    pred_len = params['pred_len']
+    n_block = params['n_block']
+    ff_dim = params['ff_dim']
+    target_slice = params['target_slice']
+
+    inputs = tf.keras.Input(shape=input_shape)
+    x = inputs  # [Batch, Input Length, Channel]
+    for _ in range(n_block):
+        x = layernorm(x, ff_dim)
+
+    if target_slice:
+        x = x[:, :, target_slice]
+
+    # Temporal projection
+    x = EmbedTransposeLayer(perm=[0, 2, 1])(x) 
+    x = layers.Dense(pred_len)(x)  # [Batch, Channel, Output Length]
+    outputs = EmbedTransposeLayer(perm=[0, 2, 1])(x)  # [Batch, Output Length, Channel])
+
+    return tf.keras.Model(inputs, outputs)
+
 def get_model_params(model_func):
     match(model_func):
         case ModelFunc.LINEAR_REG:
@@ -749,7 +873,7 @@ class ModelFunc(Enum):
     KNN_CLASS = knn_classifier_model
     KNN_REG = knn_regressor_model
     SVC_CLASS = svc_classifier_model
-    LSTM_CLASS = lstm_model
+    # LSTM_CLASS = lstm_model
  
     DECISION_TREE_CLASS_GRID_SEARCH = decision_tree_classifier_model_grid_search
     DECISION_TREE_REG_GRID_SEARCH = decision_tree_regressor_model_grid_search
