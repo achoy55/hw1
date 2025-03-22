@@ -170,9 +170,6 @@ class FeatureEngineering:
         
         return data
         
-        
-        
-
     def get_attributes(df):
         attributes = list(df.columns)
         if 'Date' in attributes: attributes.remove('Date')
@@ -219,6 +216,10 @@ class FeatureEngineering:
             dmi_period = self.params['dmi']
         if self.params.get('bbands') != None:
             bbands_period = self.params['bbands']
+        if self.params.get('smaf_period') != None:
+            smaf_period = self.params['smaf_period']
+        if self.params.get('smas_period') != None:
+            smas_period = self.params['smas_period']
 
         h = data['High']
         l = data['Low']
@@ -237,7 +238,10 @@ class FeatureEngineering:
         data['adxr'] = ta.ADXR(h, l, c, timeperiod=adx_period) / ta.ADXR(h, l, c, timeperiod=adx_period).mean()
         # The Average True Range, market volatility, risk management
         data['atr'] = ta.ATR(h, l, c, timeperiod=atr_period) / ta.ATR(h, l, c, timeperiod=atr_period).mean()
-        
+
+        data['smaf'] = ta.SMA(c, timeperiod=smaf_period) / ta.SMA(c, timeperiod=smaf_period).mean()
+        data['smas'] = ta.SMA(c, timeperiod=smas_period) / ta.SMA(c, timeperiod=smas_period).mean()
+
         # Plus/Minus Directional Indicator 
         # data['+dmi'] = ta.PLUS_DI(h, l, c ,timeperiod=dmi_period)
         # data['-dmi'] = ta.MINUS_DI(h, l, c,timeperiod=dmi_period)
@@ -315,6 +319,7 @@ class FeatureEngineering:
         lower = q1 - 1.5*IQR
         upper = q3 + 1.5*IQR
         return lower, upper
+
 
 
 if __name__ == "__main__":
