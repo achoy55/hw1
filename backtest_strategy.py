@@ -1,6 +1,7 @@
 import numpy as np
 
 from backtesting import Strategy
+from backtesting.lib import crossover
 
 
 class StopLossStrategy(Strategy):
@@ -162,18 +163,16 @@ class TSMixerStrategy(Strategy):
             lambda: np.repeat(np.nan, len(self.data)), name="forecast"
         )
 
-        print(f'windows_size: {self.window_size}')
+        print(f"windows_size: {self.window_size}")
 
     def next(self):
         super().next()
-   
+
         if len(self.data) <= self.window_size + 1:
             return
 
         scaled_prices = self.dp._make_dataset(
-            self.dp.scaler.transform(
-                self.Close[-(self.window_size + 1) :]
-            ),
+            self.dp.scaler.transform(self.Close[-(self.window_size + 1) :]),
             shuffle=False,
         )
 
@@ -192,40 +191,51 @@ class TSMixerStrategy(Strategy):
             self.sell()
 
 
-# class TSMixerEnsembleStrategy(Strategy):
-#     n1 = 5
-#     n2 = 10
+class TSMixerEnsembleStrategy(Strategy):
+    dp = None
+    model = None
+    window_size = 8
 
-#     def init(self) -> None:
-#         self.data_loader = data_loader
-#         self.model = model
-#         self.sma1 = self.I(SMA, self.data.Close, self.n1)
-#         self.sma2 = self.I(SMA, self.data.Close, self.n2)
+    def init(self):
+        super().init()
 
-#         self.forecasts = self.I(lambda: np.repeat(np.nan, len(self.data)), name='forecast')
+        self.Close = self.I(lambda: self.data.Close, name="Close").reshape(-1, 1)
+        self.rsi = self.I(lambda: self.data.rsi, name="RSI")
+        self.macd = self.I(lambda: self.data.macd, name="MACD")
 
-#     def next(self) -> None:
-#         if len(self.data) <= TSMIXER_CFG.WINDOW+1:
-#             return
+        self.forecasts = self.I(
+            lambda: np.repeat(np.nan, len(self.data)), name="forecast"
+        )
 
-#         scaled_prices = self.data_loader._make_dataset(
-#             self.data_loader.scaler.transform(self.data.df[["Close"]][-(TSMIXER_CFG.WINDOW+1):]),
-#             shuffle=False
-#             )
+    def next(self):
+        super().next()
 
-#         predicted_close_price = self.data_loader.inverse_transform(
-#             self.model.predict(scaled_prices, verbose=0)[-1,:,:]
-#             )[0][0]
+        if len(self.data) <= self.window_size + 1:
+            return
 
-#         self.forecasts[-1] = predicted_close_price
+        if len(self.trades) > 0:
+            if self.trades[-1].is_long and self.data.rsi[-1] >= 90:
+                self.trades[-1].close()
+            elif self.trades[-1].is_short and self.data.rsi[-1] <= 10:
+                self.trades[-1].close()
 
-#         if crossover(self.sma1, self.sma2) and (self.data.Close / predicted_close_price < 0.99):
-#             self.position.close()
-#             self.buy()
+        scaled_prices = self.dp._make_dataset(
+            self.dp.scaler.transform(self.Close[-(self.window_size + 1) :]),
+            shuffle=False,
+        )
 
-#         elif crossover(self.sma2, self.sma1) and (self.data.Close / predicted_close_price > 1.01):
-#             self.position.close()
-#             self.sell()
+        predicted_close_price = self.dp.inverse_transform(
+            self.model.predict(scaled_prices, verbose=0)[-1, :, :]
+        )[0][0]
+
+        self.forecasts[-1] = predicted_close_price
+
+        if (self.Close / predicted_close_price < 0.99) and len(self.trades) == 0:
+            self.buy()
+
+        elif (self.Close / predicted_close_price > 1.01) and len(self.trades) == 0:
+            self.sell()
+
 
 if __name__ == "__main__":
     pass
